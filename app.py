@@ -8,7 +8,7 @@ from ctypes import c_void_p
 import cv2
 import mediapipe as mp
 import numpy as np
-from PyQt6.QtCore import QTimer, Qt, QRect
+from PyQt6.QtCore import QSettings, QTimer, Qt, QRect
 from PyQt6.QtGui import QImage, QPixmap, QRegion
 from PyQt6.QtWidgets import (
     QApplication,
@@ -47,6 +47,7 @@ class CameraOverlay(QWidget):
             "Logs",
             "CameraOverlay.last.txt",
         )
+        self.settings = QSettings("CameraOverlay", "CameraOverlay")
 
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
@@ -128,7 +129,7 @@ class CameraOverlay(QWidget):
         self.top_timer.timeout.connect(self.ensure_on_top)
         self.top_timer.start(1000)
 
-        self.move_to_top_center()
+        self._load_settings()
         self.apply_shape_mask()
 
     def move_to_top_center(self) -> None:
@@ -177,6 +178,7 @@ class CameraOverlay(QWidget):
             self._dragging = False
             self._drag_pos = None
             event.accept()
+            self._save_settings()
         else:
             super().mouseReleaseEvent(event)
 
@@ -228,6 +230,7 @@ class CameraOverlay(QWidget):
             self.cap.release()
         if self.segmenter:
             self.segmenter.close()
+        self._save_settings()
         super().closeEvent(event)
 
     def showEvent(self, event) -> None:
@@ -307,6 +310,7 @@ class CameraOverlay(QWidget):
         self.shape = "circle" if self.shape == "square" else "square"
         self.shape_button.setText("모양: 원" if self.shape == "circle" else "모양: 네모")
         self.apply_shape_mask()
+        self._save_settings()
 
     def toggle_cutout(self) -> None:
         if not self.cutout_enabled:
@@ -316,10 +320,47 @@ class CameraOverlay(QWidget):
         else:
             self.cutout_enabled = False
         self.cutout_button.setText("배경 제거: ON" if self.cutout_enabled else "배경 제거: OFF")
+        self._save_settings()
 
     def on_zoom_change(self, value: int) -> None:
         zoom = value / 100.0
         self.zoom_label.setText(f"줌 {zoom:.1f}x")
+        self._save_settings()
+
+    def _load_settings(self) -> None:
+        shape = self.settings.value("shape", self.shape)
+        if shape in ("square", "circle"):
+            self.shape = shape
+        self.cutout_enabled = self.settings.value("cutout_enabled", False, type=bool)
+
+        zoom_value = self.settings.value("zoom_value", 200)
+        try:
+            zoom_value = int(zoom_value)
+        except (TypeError, ValueError):
+            zoom_value = 200
+        zoom_value = max(self.config.zoom_min, min(self.config.zoom_max, zoom_value))
+        self.zoom_bar.setValue(zoom_value)
+        self.on_zoom_change(zoom_value)
+
+        self.shape_button.setText("모양: 원" if self.shape == "circle" else "모양: 네모")
+        self.cutout_button.setText("배경 제거: ON" if self.cutout_enabled else "배경 제거: OFF")
+
+        pos_x = self.settings.value("pos_x", None)
+        pos_y = self.settings.value("pos_y", None)
+        try:
+            if pos_x is not None and pos_y is not None:
+                self.move(int(pos_x), int(pos_y))
+                return
+        except (TypeError, ValueError):
+            pass
+        self.move_to_top_center()
+
+    def _save_settings(self) -> None:
+        self.settings.setValue("shape", self.shape)
+        self.settings.setValue("cutout_enabled", self.cutout_enabled)
+        self.settings.setValue("zoom_value", self.zoom_bar.value())
+        self.settings.setValue("pos_x", self.x())
+        self.settings.setValue("pos_y", self.y())
 
     def _apply_zoom(self, frame: np.ndarray) -> np.ndarray:
         zoom = self.zoom_bar.value() / 100.0

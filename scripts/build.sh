@@ -15,7 +15,7 @@ APP_NAME="CameraOverlay"
 BUNDLE_ID="com.example.cameraoverlay"
 CAMERA_USAGE="Camera access is required to show your webcam overlay."
 ICON_PATH="assets/icon.icns"
-MP_MODULES_DIR="$(python - <<'PY'
+MP_MODULES_DIR="$(uv run python - <<'PY'
 import mediapipe
 from pathlib import Path
 print(Path(mediapipe.__file__).resolve().parent / "modules")
