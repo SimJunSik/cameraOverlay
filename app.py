@@ -240,7 +240,9 @@ class CameraOverlay(QWidget):
 
     def _open_camera(self) -> cv2.VideoCapture:
         if self._camera_permission_denied():
-            self.camera_error_message = "카메라 권한이 꺼져 있습니다. 시스템 설정에서 허용하세요."
+            self.camera_error_message = (
+                "Camera permission is off. Enable it in System Settings."
+            )
             return None
         cap = cv2.VideoCapture(0, cv2.CAP_AVFOUNDATION)
         if cap.isOpened():
@@ -248,7 +250,7 @@ class CameraOverlay(QWidget):
         cap.release()
         fallback = cv2.VideoCapture(0)
         if not fallback.isOpened():
-            self.camera_error_message = "카메라 권한을 확인해 주세요."
+            self.camera_error_message = "Unable to access the camera."
             return None
         return fallback
 
@@ -273,7 +275,9 @@ class CameraOverlay(QWidget):
         if status == AVAuthorizationStatusAuthorized:
             return
         if status in (AVAuthorizationStatusDenied, AVAuthorizationStatusRestricted):
-            self.camera_error_message = "카메라 권한이 꺼져 있습니다. 시스템 설정에서 허용하세요."
+            self.camera_error_message = (
+                "Camera permission is off. Enable it in System Settings."
+            )
             return
         if status == AVAuthorizationStatusNotDetermined and not self._permission_requested:
             self._permission_requested = True
