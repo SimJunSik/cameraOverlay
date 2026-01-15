@@ -36,6 +36,8 @@ class CameraOverlay(QWidget):
         self.config = config
         self.shape = "square"
         self.cutout_enabled = False
+        self.camera_enabled = True
+        self.controls_visible = True
         self._dragging = False
         self._drag_pos = None
         self.camera_error_message = None
@@ -59,7 +61,9 @@ class CameraOverlay(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
         self.setWindowFlag(Qt.WindowType.WindowDoesNotAcceptFocus, True)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.setFixedSize(self.config.width, self.config.height + 44)
+        self.controls_height = 64
+        self.controls_width = self.config.width + 160
+        self.setFixedSize(self.controls_width, self.config.height + self.controls_height)
 
         self.label = QLabel(self)
         self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -68,7 +72,8 @@ class CameraOverlay(QWidget):
 
         self.controls = QWidget(self)
         self.controls.setObjectName("controls")
-        self.controls.setFixedHeight(44)
+        self.controls.setFixedHeight(self.controls_height)
+        self.controls.setFixedWidth(self.controls_width)
         self.controls.setStyleSheet(
             "#controls { background-color: rgba(0, 0, 0, 160); border-radius: 8px; }"
         )
@@ -81,6 +86,10 @@ class CameraOverlay(QWidget):
         self.cutout_button = QPushButton("배경 제거: OFF", self.controls)
         self.cutout_button.clicked.connect(self.toggle_cutout)
         self.cutout_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
+        self.camera_button = QPushButton("카메라: ON", self.controls)
+        self.camera_button.clicked.connect(self.toggle_camera)
+        self.camera_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
         self.zoom_label = QLabel("줌 2.0x", self.controls)
         self.zoom_label.setStyleSheet("color: white;")
@@ -99,11 +108,20 @@ class CameraOverlay(QWidget):
         self.close_button.clicked.connect(self.close)
         self.close_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
+        self.controls_toggle_button = QPushButton("컨트롤 숨기기", self)
+        self.controls_toggle_button.clicked.connect(self.toggle_controls)
+        self.controls_toggle_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.controls_toggle_button.setFixedHeight(24)
+        self.controls_toggle_button.setStyleSheet(
+            "background-color: rgba(0, 0, 0, 160); color: white; border-radius: 6px; padding: 2px 8px;"
+        )
+
         controls_layout = QHBoxLayout(self.controls)
-        controls_layout.setContentsMargins(8, 6, 8, 6)
+        controls_layout.setContentsMargins(8, 10, 8, 10)
         controls_layout.setSpacing(8)
         controls_layout.addWidget(self.shape_button)
         controls_layout.addWidget(self.cutout_button)
+        controls_layout.addWidget(self.camera_button)
         controls_layout.addWidget(self.zoom_label)
         controls_layout.addWidget(self.zoom_bar, 1)
         controls_layout.addWidget(self.close_button)
@@ -113,6 +131,8 @@ class CameraOverlay(QWidget):
         layout.setSpacing(4)
         layout.addWidget(self.label, 1)
         layout.addWidget(self.controls, 0)
+        layout.setAlignment(self.label, Qt.AlignmentFlag.AlignHCenter)
+        layout.setAlignment(self.controls, Qt.AlignmentFlag.AlignHCenter)
 
         self._ensure_camera_permission()
         if self._validate_camera_usage_description():
@@ -131,13 +151,14 @@ class CameraOverlay(QWidget):
 
         self._load_settings()
         self.apply_shape_mask()
+        self._position_controls_toggle_button()
 
     def move_to_top_center(self) -> None:
         screen = QApplication.primaryScreen()
         if not screen:
             return
         rect = screen.availableGeometry()
-        x = rect.x() + (rect.width() - self.config.width) // 2
+        x = rect.x() + (rect.width() - self.width()) // 2
         y = rect.y()
         self.move(x, y)
 
@@ -182,8 +203,15 @@ class CameraOverlay(QWidget):
         else:
             super().mouseReleaseEvent(event)
 
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._position_controls_toggle_button()
+
     def update_frame(self) -> None:
         try:
+            if not self.camera_enabled:
+                self._render_placeholder("Camera is turned off.")
+                return
             if not self.cap or not self.cap.isOpened():
                 self._open_retry_counter += 1
                 if self._open_retry_counter % 30 == 0:
@@ -326,6 +354,31 @@ class CameraOverlay(QWidget):
         self.cutout_button.setText("배경 제거: ON" if self.cutout_enabled else "배경 제거: OFF")
         self._save_settings()
 
+    def toggle_camera(self) -> None:
+        if self.camera_enabled:
+            self.camera_enabled = False
+            if self.cap and self.cap.isOpened():
+                self.cap.release()
+            self.cap = None
+        else:
+            self.camera_enabled = True
+            self._ensure_camera_permission()
+            self.cap = self._open_camera()
+        self.camera_button.setText("카메라: ON" if self.camera_enabled else "카메라: OFF")
+        self._save_settings()
+
+    def toggle_controls(self) -> None:
+        self.controls_visible = not self.controls_visible
+        self.controls.setVisible(self.controls_visible)
+        if self.controls_visible:
+            self.setFixedSize(self.controls_width, self.config.height + self.controls_height)
+            self.controls_toggle_button.setText("컨트롤 숨기기")
+        else:
+            self.setFixedSize(self.controls_width, self.config.height)
+            self.controls_toggle_button.setText("컨트롤 보이기")
+        self._position_controls_toggle_button()
+        self._save_settings()
+
     def on_zoom_change(self, value: int) -> None:
         zoom = value / 100.0
         self.zoom_label.setText(f"줌 {zoom:.1f}x")
@@ -336,6 +389,8 @@ class CameraOverlay(QWidget):
         if shape in ("square", "circle"):
             self.shape = shape
         self.cutout_enabled = self.settings.value("cutout_enabled", False, type=bool)
+        self.camera_enabled = self.settings.value("camera_enabled", True, type=bool)
+        self.controls_visible = self.settings.value("controls_visible", True, type=bool)
 
         zoom_value = self.settings.value("zoom_value", 200)
         try:
@@ -348,6 +403,23 @@ class CameraOverlay(QWidget):
 
         self.shape_button.setText("모양: 원" if self.shape == "circle" else "모양: 네모")
         self.cutout_button.setText("배경 제거: ON" if self.cutout_enabled else "배경 제거: OFF")
+        self.camera_button.setText("카메라: ON" if self.camera_enabled else "카메라: OFF")
+        self.controls.setVisible(self.controls_visible)
+        self.controls_toggle_button.setText(
+            "컨트롤 숨기기" if self.controls_visible else "컨트롤 보이기"
+        )
+        if self.controls_visible:
+            self.setFixedSize(self.controls_width, self.config.height + self.controls_height)
+        else:
+            self.setFixedSize(self.controls_width, self.config.height)
+
+        if self.camera_enabled:
+            self._ensure_camera_permission()
+            self.cap = self._open_camera()
+        else:
+            if self.cap and self.cap.isOpened():
+                self.cap.release()
+            self.cap = None
 
         pos_x = self.settings.value("pos_x", None)
         pos_y = self.settings.value("pos_y", None)
@@ -362,9 +434,16 @@ class CameraOverlay(QWidget):
     def _save_settings(self) -> None:
         self.settings.setValue("shape", self.shape)
         self.settings.setValue("cutout_enabled", self.cutout_enabled)
+        self.settings.setValue("camera_enabled", self.camera_enabled)
+        self.settings.setValue("controls_visible", self.controls_visible)
         self.settings.setValue("zoom_value", self.zoom_bar.value())
         self.settings.setValue("pos_x", self.x())
         self.settings.setValue("pos_y", self.y())
+
+    def _position_controls_toggle_button(self) -> None:
+        margin = 6
+        button_w = self.controls_toggle_button.sizeHint().width()
+        self.controls_toggle_button.move(self.width() - button_w - margin, margin)
 
     def _apply_zoom(self, frame: np.ndarray) -> np.ndarray:
         zoom = self.zoom_bar.value() / 100.0
