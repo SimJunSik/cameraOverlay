@@ -1,0 +1,18 @@
+[project]
+name = "camera-overlay"
+version = "0.1.0"
+description = "Always-on-top camera overlay for macOS"
+requires-python = ">=3.10"
+dependencies = [
+    "opencv-python==4.9.0.80",
+    "PyQt6==6.7.1",
+    "numpy<2",
+    "mediapipe==0.10.14",
+    "pyobjc==10.3.1",
+    "pyobjc-framework-AVFoundation==10.3.1",
+]
+
+[project.optional-dependencies]
+build = [
+    "pyinstaller==6.10.0",
+]
